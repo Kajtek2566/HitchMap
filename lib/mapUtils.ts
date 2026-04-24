@@ -99,6 +99,19 @@ const sampleFarViewSpots = <T extends SpotLike>(spots: T[], limit: number) => {
     };
   };
 
+  const compareSpotsStable = (a: T, b: T) => {
+    if (a.lat !== b.lat) return a.lat - b.lat;
+    if (a.lon !== b.lon) return a.lon - b.lon;
+
+    const aPriority = getSpotPriority(a);
+    const bPriority = getSpotPriority(b);
+
+    if (aPriority.rating !== bPriority.rating) return bPriority.rating - aPriority.rating;
+    if (aPriority.createdAt !== bPriority.createdAt) return bPriority.createdAt - aPriority.createdAt;
+
+    return String(a.id).localeCompare(String(b.id));
+  };
+
   for (const spot of spots) {
     const latIndex = Math.min(
       gridSize - 1,
@@ -127,7 +140,7 @@ const sampleFarViewSpots = <T extends SpotLike>(spots: T[], limit: number) => {
     }
   }
 
-  const sampled = Array.from(cellMap.values());
+  const sampled = Array.from(cellMap.values()).sort(compareSpotsStable);
   if (sampled.length <= limit) {
     return sampled;
   }

@@ -57,6 +57,12 @@ const expandBounds = (bounds: RegionBounds, multiplier: number): RegionBounds =>
   };
 };
 
+const containsRegionBounds = (outer: RegionBounds, inner: RegionBounds) =>
+  inner.minLat >= outer.minLat &&
+  inner.maxLat <= outer.maxLat &&
+  inner.minLon >= outer.minLon &&
+  inner.maxLon <= outer.maxLon;
+
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const isLockedDatabaseError = (error: unknown) =>
@@ -88,6 +94,16 @@ export function useMapViewport({
   const lastLoadedZoomRef = useRef<number | null>(null);
   const viewportTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestRegionRequestRef = useRef(0);
+  const spotsRef = useRef<Spot[]>([]);
+  const currentZoomRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    spotsRef.current = spots;
+  }, [spots]);
+
+  useEffect(() => {
+    currentZoomRef.current = currentZoom;
+  }, [currentZoom]);
 
   const fetchVisibleRegionFromApi = useCallback(
     async (bounds: RegionBounds) => {
@@ -218,12 +234,12 @@ export function useMapViewport({
         }
 
         loadedBoundsRef.current = loadedBounds;
-        lastLoadedZoomRef.current = currentZoom;
+        lastLoadedZoomRef.current = currentZoomRef.current;
 
-        const shouldKeepExistingSpots = visible.length === 0 && spots.length > 0;
-        const finalVisible = shouldKeepExistingSpots ? spots : visible;
+        const shouldKeepExistingSpots = visible.length === 0 && spotsRef.current.length > 0;
+        const finalVisible = shouldKeepExistingSpots ? spotsRef.current : visible;
         const finalSource = shouldKeepExistingSpots ? `${visibleSource}-keep` : visibleSource;
-        const effectiveZoom = zoomOverride ?? currentZoom;
+        const effectiveZoom = zoomOverride ?? currentZoomRef.current;
         const zoomLabel = effectiveZoom !== null ? effectiveZoom.toFixed(2) : "?";
 
         setSpots(finalVisible);
@@ -245,7 +261,7 @@ export function useMapViewport({
         setViewportLoading(false);
       }
     },
-    [dbRef, fetchNearestSpotsFromApi, fetchVisibleRegionFromApi, onViewportError, onViewportSuccess, spots],
+    [dbRef, fetchNearestSpotsFromApi, fetchVisibleRegionFromApi, onViewportError, onViewportSuccess],
   );
 
   const updateVisibleRegionDebounced = useCallback(
@@ -259,13 +275,22 @@ export function useMapViewport({
           const actualView = await resolveActualView(eventRegion);
           const actualRegion = actualView.region;
           const previousZoom = lastLoadedZoomRef.current;
+          const loadedBounds = loadedBoundsRef.current;
+          const actualBounds = getRegionBounds(actualRegion);
           const zoomChanged =
             actualView.zoom === null ||
             previousZoom === null ||
             Math.abs(actualView.zoom - previousZoom) >= ZOOM_RELOAD_EPSILON;
-          let debugSource = zoomChanged ? "reload-zoom" : "cached-pan";
+          const movedOutsideLoadedBounds =
+            !loadedBounds || !containsRegionBounds(loadedBounds, actualBounds);
+          const shouldReload = zoomChanged || movedOutsideLoadedBounds;
+          let debugSource = zoomChanged
+            ? "reload-zoom"
+            : movedOutsideLoadedBounds
+              ? "reload-pan"
+              : "cached-pan";
 
-          if (zoomChanged) {
+          if (shouldReload) {
             await loadVisibleRegionFromDb(actualRegion, undefined, actualView.zoom);
           }
 
@@ -274,7 +299,7 @@ export function useMapViewport({
             setCurrentZoom(actualView.zoom);
             setViewportDebugMessage((current) => {
               const pointsMatch = current?.match(/\| punkty: (\d+)/);
-              const pointsLabel = pointsMatch?.[1] ?? String(spots.length);
+              const pointsLabel = pointsMatch?.[1] ?? String(spotsRef.current.length);
               const zoomLabel = actualView.zoom !== null ? actualView.zoom.toFixed(2) : "?";
               return `Srodek: ${actualRegion.latitude.toFixed(4)}, ${actualRegion.longitude.toFixed(4)} | d: ${actualRegion.latitudeDelta.toFixed(3)} / ${actualRegion.longitudeDelta.toFixed(3)} | zoom: ${zoomLabel} | zrodlo: ${debugSource} | punkty: ${pointsLabel}`;
             });
@@ -282,7 +307,7 @@ export function useMapViewport({
         })();
       }, VIEWPORT_DEBOUNCE_MS);
     },
-    [loadVisibleRegionFromDb, resolveActualView, spots.length],
+    [loadVisibleRegionFromDb, resolveActualView],
   );
 
   useEffect(() => {

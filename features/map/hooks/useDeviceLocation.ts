@@ -30,6 +30,7 @@ export function useDeviceLocation({
   onInitialRegionResolved,
 }: UseDeviceLocationParams) {
   const [userLocation, setUserLocation] = useState<PendingSpot | null>(null);
+  const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
   const locationWatchRef = useRef<Location.LocationSubscription | null>(null);
 
   const applyResolvedLocation = useCallback((coords: PendingSpot, shouldSyncViewport: boolean) => {
@@ -79,7 +80,13 @@ export function useDeviceLocation({
     void (async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== "granted") return;
+        const granted = status === "granted";
+        setLocationPermissionGranted(granted);
+
+        if (!granted) {
+          setUiErrorMessage("Brak dostepu do lokalizacji urzadzenia.");
+          return;
+        }
 
         const lastKnown = await Location.getLastKnownPositionAsync();
         if (lastKnown) {
@@ -111,6 +118,7 @@ export function useDeviceLocation({
 
   return {
     userLocation,
+    locationPermissionGranted,
     centerOnUserLocation,
   };
 }

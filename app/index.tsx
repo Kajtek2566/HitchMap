@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Pressable, View } from "react-native";
 import type { SQLiteDatabase } from "expo-sqlite";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import MapView, { Marker } from "react-native-maps";
+import MapView, { Marker, type Region } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
@@ -45,6 +45,44 @@ const isLockedDatabaseMessage = (value: string | null) =>
 const OVERLAY_ENTER_ZOOM = 11.2;
 const OVERLAY_EXIT_ZOOM = 12.0;
 
+const getOverlayRadius = (region: Region, zoom: number | null) => {
+  if (zoom === null) {
+    if (region.latitudeDelta > 20) return 2200;
+    if (region.latitudeDelta > 8) return 1400;
+    if (region.latitudeDelta > 3) return 900;
+    if (region.latitudeDelta > 1) return 500;
+    return 220;
+  }
+
+  if (zoom < 7.5) return 2200;
+  if (zoom < 8.5) return 1600;
+  if (zoom < 9.5) return 1100;
+  if (zoom < 10.5) return 700;
+  if (zoom < 11.2) return 360;
+  return 220;
+};
+
+const getOverlayZoomBucket = (region: Region, zoom: number | null) => {
+  if (zoom === null) {
+    if (region.latitudeDelta > 20) return "delta-1";
+    if (region.latitudeDelta > 8) return "delta-2";
+    if (region.latitudeDelta > 3) return "delta-3";
+    if (region.latitudeDelta > 1) return "delta-4";
+    return "delta-5";
+  }
+
+  if (zoom < 7.5) return "zoom-1";
+  if (zoom < 8.5) return "zoom-2";
+  if (zoom < 9.5) return "zoom-3";
+  if (zoom < 10.5) return "zoom-4";
+  if (zoom < 11.2) return "zoom-5";
+  return "zoom-6";
+};
+
+const hasMovedFarEnoughForOverlayRefresh = (previous: Region, next: Region) =>
+  Math.abs(previous.latitude - next.latitude) > previous.latitudeDelta * 0.18 ||
+  Math.abs(previous.longitude - next.longitude) > previous.longitudeDelta * 0.18;
+
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
   const userIdRef = useRef(`user-${Math.random().toString(36).slice(2, 10)}`);
@@ -56,6 +94,11 @@ export default function MapScreen() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuSection, setMenuSection] = useState<MenuSection>("group");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [overlaySnapshotRegion, setOverlaySnapshotRegion] = useState(DEFAULT_REGION);
+  const [overlaySnapshotRadius, setOverlaySnapshotRadius] = useState(
+    getOverlayRadius(DEFAULT_REGION, null),
+  );
+  const overlayZoomBucketRef = useRef<string | null>(null);
 
   const setUiErrorMessage = useCallback((value: string | null) => {
     if (isLockedDatabaseMessage(value)) {
@@ -119,18 +162,31 @@ export default function MapScreen() {
     return next;
   })();
 
+  useEffect(() => {
+    if (!showDensityOverlay) {
+      overlayZoomBucketRef.current = null;
+      return;
+    }
+
+    const nextBucket = getOverlayZoomBucket(currentRegion, currentZoom);
+    const shouldRefresh =
+      overlayZoomBucketRef.current === null ||
+      overlayZoomBucketRef.current !== nextBucket ||
+      hasMovedFarEnoughForOverlayRefresh(overlaySnapshotRegion, currentRegion);
+
+    if (!shouldRefresh) {
+      return;
+    }
+
+    overlayZoomBucketRef.current = nextBucket;
+    setOverlaySnapshotRegion(currentRegion);
+    setOverlaySnapshotRadius(getOverlayRadius(currentRegion, currentZoom));
+  }, [currentRegion, currentZoom, overlaySnapshotRegion, showDensityOverlay]);
+
   const farViewSpots = useMemo(
-    () => (showDensityOverlay ? buildFarViewSpots(spots, currentRegion) : []),
-    [currentRegion, showDensityOverlay, spots],
+    () => (showDensityOverlay ? buildFarViewSpots(spots, overlaySnapshotRegion) : []),
+    [overlaySnapshotRegion, showDensityOverlay, spots],
   );
-  const overlayCircleRadius = useMemo(() => {
-    if (currentRegion.latitudeDelta > 20) return 2200;
-    if (currentRegion.latitudeDelta > 8) return 1400;
-    if (currentRegion.latitudeDelta > 3) return 900;
-    if (currentRegion.latitudeDelta > 1) return 500;
-    if (currentRegion.latitudeDelta > 0.25) return 220;
-    return 120;
-  }, [currentRegion.latitudeDelta]);
 
   const pointMarkers = useMemo(() => markerGroups.map((item) => (
     <Marker
@@ -224,6 +280,7 @@ export default function MapScreen() {
 
   const {
     userLocation,
+    locationPermissionGranted,
     centerOnUserLocation,
   } = useDeviceLocation({
     mapRef,
@@ -329,12 +386,14 @@ export default function MapScreen() {
         themeMode={themeMode}
         addingSpot={addingSpot}
         pendingSpot={pendingSpot}
+        userLocation={userLocation}
+        locationPermissionGranted={locationPermissionGranted}
         offlineTilesEnabled={offlineTilesEnabled}
         downloadedMapCodes={downloadedMapCodes}
         activeGroup={activeGroup}
         showDensityOverlay={showDensityOverlay}
         farViewSpots={farViewSpots}
-        overlayCircleRadius={overlayCircleRadius}
+        overlayCircleRadius={overlaySnapshotRadius}
         pointMarkers={pointMarkers}
         onRegionChangeComplete={updateVisibleRegionDebounced}
         onSelectPendingSpot={handleMapPress}

@@ -22,6 +22,8 @@ type MapCanvasProps = {
   themeMode: ThemeMode;
   addingSpot: boolean;
   pendingSpot: PendingSpot | null;
+  userLocation: PendingSpot | null;
+  locationPermissionGranted: boolean;
   offlineTilesEnabled: boolean;
   downloadedMapCodes: string[];
   activeGroup: ActiveGroup | null;
@@ -44,6 +46,8 @@ export function MapCanvas({
   themeMode,
   addingSpot,
   pendingSpot,
+  userLocation,
+  locationPermissionGranted,
   offlineTilesEnabled,
   downloadedMapCodes,
   activeGroup,
@@ -63,7 +67,7 @@ export function MapCanvas({
       style={StyleSheet.absoluteFill}
       customMapStyle={themeMode === "dark" ? DARK_MAP_STYLE : []}
       initialRegion={DEFAULT_REGION}
-      showsUserLocation={true}
+      showsUserLocation={locationPermissionGranted}
       showsMyLocationButton={false}
       onRegionChangeComplete={onRegionChangeComplete}
       onPress={(event) => {
@@ -75,6 +79,25 @@ export function MapCanvas({
         onClearSelection();
       }}
     >
+      {userLocation ? (
+        <Marker
+          coordinate={userLocation}
+          anchor={{ x: 0.5, y: 0.5 }}
+          tracksViewChanges={false}
+          title="Twoja lokalizacja"
+        >
+          <View
+            style={{
+              width: 16,
+              height: 16,
+              borderRadius: 8,
+              backgroundColor: "#2563eb",
+              borderWidth: 3,
+              borderColor: "#bfdbfe",
+            }}
+          />
+        </Marker>
+      ) : null}
       {pendingSpot ? <Marker coordinate={pendingSpot} pinColor="#2563eb" title="Nowy punkt" /> : null}
       {offlineTilesEnabled && downloadedMapCodes.length > 0 ? (
         <LocalTile pathTemplate={OSM_TILE_TEMPLATE} tileSize={256} zIndex={0} />
@@ -93,6 +116,7 @@ export function MapCanvas({
               key={member.userId}
               coordinate={{ latitude: member.lat!, longitude: member.lon! }}
               title={member.displayName}
+              tracksViewChanges={false}
               description={
                 isStale
                   ? `Ostatnio dostepny: ${freshnessLabel}`
@@ -111,8 +135,8 @@ export function MapCanvas({
             key={`far-${spot.id}`}
             center={{ latitude: spot.lat, longitude: spot.lon }}
             radius={overlayCircleRadius}
-            fillColor={`${getSpotColor(spot.rating)}12`}
-            strokeColor={`${getSpotColor(spot.rating)}cc`}
+            fillColor={`${getSpotColor(spot.rating)}26`}
+            strokeColor={`${getSpotColor(spot.rating)}b3`}
             strokeWidth={1}
           />
         ))
